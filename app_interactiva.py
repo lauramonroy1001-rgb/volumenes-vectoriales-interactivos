@@ -5,8 +5,8 @@ import streamlit as st
 # Configuración de la página de Streamlit
 st.set_page_config(page_title="Volúmenes Vectoriales Interactivos", layout="wide")
 
-st.title("Poliedros de Steinmetz: Intersección de Cilindros")
-st.write("Modifica los parámetros en el panel de la izquierda para ver cómo cambia el volumen tridimensional.")
+st.title("Poliedros de Steinmetz: Intersección de Cilindros y Cálculo de Volumen")
+st.write("Modifica los parámetros en el panel de la izquierda para ver el sólido en 3D y su volumen calculado automáticamente.")
 
 # ==========================================
 # PANEL DE CONTROL (BARRA LATERAL)
@@ -23,28 +23,41 @@ caso = st.sidebar.selectbox(
 
 # 2. Controles de Radio según el caso elegido
 st.sidebar.subheader("Dimensiones (Radios)")
+volumen_teorico = None  # Inicializador
+
 if caso == "Caso 1: Bicilindro (2 cilindros)":
     r = st.sidebar.slider("Radio de los cilindros (r)", min_value=1.0, max_value=6.0, value=4.0, step=0.5)
     lim = r
+    # Fórmula teórica: V = (16/3) * r^3
+    volumen_teorico = (16.0 / 3.0) * (r ** 3)
+    
 elif caso == "Caso 2: Tricilindro Simétrico (3 cilindros)":
     r = st.sidebar.slider("Radio de los 3 cilindros (r)", min_value=1.0, max_value=6.0, value=2.0, step=0.5)
     lim = r
+    # Fórmula teórica: V = 8 * (2 - sqrt(2)) * r^3
+    volumen_teorico = 8.0 * (2.0 - np.sqrt(2.0)) * (r ** 3)
+    
 else: # Caso 3: Asimétrico
     r_z = st.sidebar.slider("Radio Cilindro Z (Base en XY)", min_value=1.0, max_value=6.0, value=4.0, step=0.5)
-    r_x = st.sidebar.slider("Radio Cilindro X (Base en YZ)", min_value=1.0, max_value=6.0, value=3.0, step=0.5)
-    r_y = st.sidebar.slider("Radio Cilindro Y (Base en XZ)", min_value=1.0, max_value=6.0, value=2.0, step=0.5)
+    r_x = st.sidebar.slider("Radio Cilindro X (Base en YZ)", min_value=1.0, max_value=3.0, value=3.0, step=0.5)
+    r_y = st.sidebar.slider("Radio Cilindro Y (Base en XZ)", min_value=1.0, max_value=2.0, value=2.0, step=0.5)
     lim = max(r_z, r_x, r_y)
 
-# 3. Personalización Estética
+# 3. Personalización Estética y Resolución
 st.sidebar.subheader("Estilo Visual")
 paleta_color = st.sidebar.selectbox("Escala de colores:", ["Cividis", "Oranges", "Viridis", "Plasma", "Turbo"])
-n = st.sidebar.slider("Suavidad de la superficie (Resolución de rejilla)", min_value=30, max_value=80, value=50, step=5)
+n = st.sidebar.slider("Suavidad de la superficie (Resolución)", min_value=30, max_value=80, value=60, step=5)
 
 # ==========================================
 # CÁLCULOS MATEMÁTICOS Y LÓGICA BOOLEANA
 # ==========================================
-# Generar la rejilla 3D basada en el límite máximo necesario
+# Generar la rejilla 3D diferencial
 puntos = np.linspace(-lim, lim, n)
+dx = puntos[1] - puntos[0]  # Ancho de cada diferencial en X
+dy = puntos[1] - puntos[0]  # Ancho en Y
+dz = puntos[1] - puntos[0]  # Ancho en Z
+dV = dx * dy * dz           # Diferencial de volumen elemental (dV)
+
 X, Y, Z = np.meshgrid(puntos, puntos, puntos)
 
 # Definición de las condiciones lógicas de los cilindros
@@ -66,9 +79,29 @@ else: # Caso 3: Asimétrico
     cilindro_x = (Y**2 + Z**2 <= r_x**2)
     cilindro_y = (X**2 + Z**2 <= r_y**2)
     volumen_logico = cilindro_z & cilindro_x & cilindro_y
-    titulo_grafico = f"Tricilindro Asimétrico: $x^2+y^2<{r_z**2:.0f}$, $y^2+z^2<{r_x**2:.0f}$, $x^2+z^2<{r_y**2:.0f}$"
+    titulo_grafico = f"Tricilindro Asimétrico"
+
+# --- CÁLCULO DE VOLUMEN POR DISCRETIZACIÓN ---
+# Contamos cuántos puntos de la mallas quedaron dentro del sólido (True) y multiplicamos por dV
+puntos_adentro = np.sum(volumen_logico)
+volumen_aproximado = puntos_adentro * dV
 
 valores = volumen_logico.astype(float)
+
+# ==========================================
+# DESPLIEGUE DE RESULTADOS (MÉTRICAS)
+# ==========================================
+col1, col2 = st.columns(2)
+
+with col1:
+    if volumen_teorico is not None:
+        st.metric(label="Volumen Teórico Exacto (Integrales Triples)", value=f"{volumen_teorico:.4f} u³")
+    else:
+        st.metric(label="Volumen Teórico Exacto", value="No disponible analíticamente")
+
+with col2:
+    st.metric(label="Volumen Numérico Aproximado (Suma de Riemann 3D)", value=f"{volumen_aproximado:.4f} u³", 
+              delta=f"Error aprx: {abs(volumen_teorico - volumen_aproximado):.4f} u³" if volumen_teorico else None)
 
 # ==========================================
 # RENDERIZADO DEL GRÁFICO 3D
@@ -95,11 +128,7 @@ fig.update_layout(
         aspectmode='cube'
     ),
     margin=dict(r=0, l=0, b=0, t=40),
-    height=650
+    height=600
 )
 
-# Mostrar el gráfico en la interfaz de Streamlit
 st.plotly_chart(fig, use_container_width=True)
-
-# Sección informativa adicional para el usuario en la app
-st.info("💡 **Consejo:** Puedes usar el ratón dentro del gráfico para rotar el volumen, hacer zoom y examinar las caras de la intersección.")
